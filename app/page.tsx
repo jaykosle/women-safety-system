@@ -1,3 +1,5 @@
+'use client'
+import { useAuth } from '@/context/AuthContext';
 import React from 'react';
 import Link from 'next/link';
 import { Shield, Map, Navigation, Bell, BarChart, AlertTriangle, HeartHandshake } from 'lucide-react';
@@ -6,6 +8,7 @@ import CrimeTrendChart from '@/components/Landing Page Components/CrimeTrendChar
 import CrimePieChart from '@/components/Landing Page Components/CrimePieChart';
 
 export default function LandingPage() {
+  const { user, loading, logout } = useAuth()
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
       {/* Navigation Bar */}
@@ -15,9 +18,32 @@ export default function LandingPage() {
           <span className="text-xl font-bold text-slate-800">SafePath AI</span>
         </div>
         <div>
-          <Link href="/login" className="px-6 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 transition-colors">
-            Login
-          </Link>
+<div className="flex items-center space-x-3">
+  {!loading && (
+    user ? (
+      <>
+        <Link href="/dashboard" className="px-4 py-2 text-sm font-medium text-indigo-600 hover:text-indigo-700">
+          Dashboard
+        </Link>
+        <button
+          onClick={logout}
+          className="px-4 py-2 text-sm font-medium text-white bg-slate-700 rounded-md hover:bg-slate-800 transition-colors"
+        >
+          Logout
+        </button>
+      </>
+    ) : (
+      <>
+        <Link href="/login" className="px-4 py-2 text-sm font-medium text-indigo-600 border border-indigo-200 rounded-md hover:bg-indigo-50">
+          Login
+        </Link>
+        <Link href="/signup" className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 transition-colors">
+          Sign Up
+        </Link>
+      </>
+    )
+  )}
+</div>
         </div>
       </nav>
 
