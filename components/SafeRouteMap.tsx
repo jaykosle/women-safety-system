@@ -35,8 +35,9 @@ export default function SafeRouteMap() {
   const [step, setStep] = useState<'idle' | 'picking_start' | 'picking_end' | 'ready' | 'result'>('idle')
 
   // Init map
+// Init map
   useEffect(() => {
-    if (typeof window === 'undefined' || mapInstance.current) return
+    if (typeof window === 'undefined') return
 
     const init = async () => {
       const L = (await import('leaflet')).default
@@ -44,6 +45,13 @@ export default function SafeRouteMap() {
       await import('leaflet.heat')
 
       if (!mapRef.current) return
+
+      // --- FIX: Prevent re-initialization if map already exists ---
+      if (mapInstance.current) return;
+      
+      // Secondary check: if the DOM element is already "owned" by Leaflet
+      // @ts-ignore
+      if (mapRef.current._leaflet_id) return;
 
       const map = L.map(mapRef.current, {
         center: [22.5, 82.5],
@@ -62,24 +70,34 @@ export default function SafeRouteMap() {
       mapInstance.current = map
 
       // Load heatmap
-      const res = await fetch('/api/heatmap')
-      const points = await res.json()
-      if (points.length && (L as any).heatLayer) {
-        heatLayerRef.current = (L as any).heatLayer(points, {
-          radius: 20,
-          blur: 15,
-          maxZoom: 12,
-          gradient: { 0.3: '#1a9e4a', 0.6: '#f5a623', 1.0: '#e8342a' }
-        })
-        heatLayerRef.current.addTo(map)
+      try {
+        const res = await fetch('/api/heatmap')
+        if (res.ok) {
+          const points = await res.json()
+          if (points.length && (L as any).heatLayer) {
+            heatLayerRef.current = (L as any).heatLayer(points, {
+              radius: 20,
+              blur: 15,
+              maxZoom: 12,
+              gradient: { 0.3: '#1a9e4a', 0.6: '#f5a623', 1.0: '#e8342a' }
+            })
+            heatLayerRef.current.addTo(map)
+          }
+        }
+      } catch (err) {
+        console.error("Heatmap load failed:", err)
       }
     }
 
     init()
 
+    // --- FIX: Robust Cleanup ---
     return () => {
-      mapInstance.current?.remove()
-      mapInstance.current = null
+      if (mapInstance.current) {
+        mapInstance.current.off(); // Remove event listeners
+        mapInstance.current.remove(); // Destroy map instance
+        mapInstance.current = null; // Reset the ref
+      }
     }
   }, [])
 
