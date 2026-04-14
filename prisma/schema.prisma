@@ -74,3 +74,24 @@ model SosAlert {
 
   @@map("sos_alerts")
 }
+
+model CrimeRecord {
+  id          String   @id @default(cuid())
+  latitude    Float
+  longitude   Float
+  district    String
+  state       String
+  crimeType   String
+  severity    String   @default("MEDIUM")
+  year        Int
+  timeOfDay   String   @default("UNKNOWN")
+  caseCount   Int      @default(1)
+  source      String   @default("synthetic")
+  isVerified  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([latitude, longitude])
+  @@index([district])
+  @@index([crimeType])
+  @@map("crime_records")
+}
