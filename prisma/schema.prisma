@@ -29,9 +29,10 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  contacts  TrustedContact[]
-  sosAlerts SosAlert[]
-  sessions  Session[]
+  contacts     TrustedContact[]
+  sosAlerts    SosAlert[]
+  sessions     Session[]
+  routeHistory RouteHistory[]
 
   @@map("users")
 }
@@ -94,4 +95,49 @@ model CrimeRecord {
   @@index([district])
   @@index([crimeType])
   @@map("crime_records")
+}
+
+enum RiskLevel {
+  SAFE
+  MODERATE
+  HIGH
+  CRITICAL
+}
+
+model RiskZone {
+  id             String    @id @default(cuid())
+  latitude       Float
+  longitude      Float
+  gridResolution Float     @default(0.005)
+  riskScore      Float
+  riskLevel      RiskLevel
+  crimeDensity   Float
+  nightCrimeRate Float
+  severityScore  Float
+  crimeCount     Int
+  lastUpdated    DateTime  @default(now())
+  year           Int?
+
+  @@unique([latitude, longitude, gridResolution])
+  @@index([latitude, longitude])
+  @@index([riskLevel])
+  @@map("risk_zones")
+}
+
+model RouteHistory {
+  id            String   @id @default(cuid())
+  userId        String
+  startLat      Float
+  startLng      Float
+  endLat        Float
+  endLng        Float
+  safeRoute     Json
+  shortRoute    Json
+  safeDistance  Float
+  shortDistance Float
+  avgRiskScore  Float
+  createdAt     DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id])
+
+  @@map("route_history")
 }
