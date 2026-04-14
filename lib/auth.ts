@@ -1,3 +1,4 @@
+// lib/auth.ts
 import { NextRequest } from 'next/server'
 import { verifyJWT } from './jwt'
 

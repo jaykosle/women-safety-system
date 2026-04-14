@@ -1,6 +1,7 @@
 'use client'
 import { useAuth } from '@/context/AuthContext'
 import { Shield, LogOut, Map, Bell, BarChart } from 'lucide-react'
+import Link from 'next/link'
 
 export default function DashboardPage() {
   const { user, loading, logout } = useAuth()
@@ -41,11 +42,13 @@ export default function DashboardPage() {
         <p className="text-slate-500 mb-10">Your safety overview</p>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-md transition-shadow cursor-pointer">
-            <Map className="w-10 h-10 text-indigo-500 mb-4" />
-            <h2 className="text-lg font-bold text-slate-900 mb-1">Safety Map</h2>
-            <p className="text-slate-500 text-sm">View heatmaps and safe routes in your area</p>
-          </div>
+          <Link href="/map" className="block">
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-md transition-shadow cursor-pointer">
+              <Map className="w-10 h-10 text-indigo-500 mb-4" />
+              <h2 className="text-lg font-bold text-slate-900 mb-1">Safety Map</h2>
+              <p className="text-slate-500 text-sm">View heatmaps and safe routes in your area</p>
+            </div>
+          </Link>
 
           <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-md transition-shadow cursor-pointer">
             <Bell className="w-10 h-10 text-rose-500 mb-4" />

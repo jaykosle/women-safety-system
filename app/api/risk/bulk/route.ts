@@ -1,3 +1,4 @@
+// app/api/risk/bulk/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getRiskLevel } from '@/lib/utils'

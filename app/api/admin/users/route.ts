@@ -1,4 +1,4 @@
-// app/api/admin/hotspots/route.ts
+// app/api/admin/users/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getUserFromRequest } from '@/lib/auth'
@@ -10,10 +10,11 @@ export async function GET(req: NextRequest) {
   const user = await prisma.user.findUnique({ where: { id: userId } })
   if (user?.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const hotspots = await prisma.riskZone.findMany({
-    where: { riskLevel: { in: ['HIGH', 'CRITICAL'] } },
-    orderBy: { riskScore: 'desc' },
-    take: 10
+  const users = await prisma.user.findMany({
+    select: { id: true, name: true, email: true, role: true, createdAt: true },
+    orderBy: { createdAt: 'desc' },
+    take: 50 // Simplified pagination for prototype
   })
-  return NextResponse.json(hotspots)
+
+  return NextResponse.json(users)
 }
