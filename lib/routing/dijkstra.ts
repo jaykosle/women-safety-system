@@ -1,20 +1,18 @@
-//lib/routing/dijkstra.ts
+// lib/routing/dijkstra.ts
 import { MinHeap } from './min-heap'
 import {
   Node, Edge, Graph,
   buildGraph, findNearestNode,
-  haversineDistance, computeSegmentRisk
+  haversineDistance, getSegmentRiskSync
 } from './graph'
 
 export interface RouteResult {
   path: Node[]
-  totalDistance: number   // metres
-  avgRiskScore: number    // 0–100
+  totalDistance: number
+  avgRiskScore: number
   geojson: object
 }
 
-// alpha = 0 → distance only  |  alpha = 1 → risk only
-// Default 0.6 = 60% risk, 40% distance  (expose as user slider later)
 function edgeCost(edge: Edge, alpha = 0.6): number {
   const MAX_SEGMENT_M = 1000
   const normDist = (edge.distance / MAX_SEGMENT_M) * 100
@@ -89,11 +87,11 @@ function pathToGeoJSON(path: Node[]): object {
   }
 }
 
-async function computePathAvgRisk(path: Node[]): Promise<number> {
+function computePathAvgRisk(path: Node[]): number {
   if (path.length < 2) return 0
   let total = 0
   for (let i = 0; i < path.length - 1; i++) {
-    total += await computeSegmentRisk(
+    total += getSegmentRiskSync(
       path[i].lat, path[i].lng,
       path[i + 1].lat, path[i + 1].lng
     )
@@ -127,8 +125,8 @@ export async function computeSafeRoute(
   return {
     path,
     totalDistance: totalPathDistance(path),
-    avgRiskScore: await computePathAvgRisk(path),
-    geojson: pathToGeoJSON(path)
+    avgRiskScore:  computePathAvgRisk(path),
+    geojson:       pathToGeoJSON(path)
   }
 }
 
@@ -136,6 +134,5 @@ export async function computeShortestRoute(
   startLat: number, startLng: number,
   endLat: number, endLng: number
 ): Promise<RouteResult> {
-  // alpha = 0 means pure distance — same Dijkstra, zero risk weight
   return computeSafeRoute(startLat, startLng, endLat, endLng, 0)
 }
