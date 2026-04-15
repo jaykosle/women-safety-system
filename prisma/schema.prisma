@@ -141,3 +141,55 @@ model RouteHistory {
 
   @@map("route_history")
 }
+
+model AnalyticsCache {
+  id        String   @id @default(cuid())
+  state     String
+  district  String?
+  cacheType String   // 'stats', 'forecast', 'hotspots', 'trends'
+  crimeType String?  // For forecasts
+  data      Json     // Cached JSON data
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([state, district, cacheType, crimeType])
+  @@index([expiresAt])
+}
+
+model CrimeStatistic {
+  id        String   @id @default(cuid())
+  state     String
+  district  String
+  year      Int
+  rape      Int      @default(0)
+  kidnapping Int     @default(0)
+  dowryDeath Int     @default(0)
+  assaultWomen Int   @default(0)
+  insultModesty Int  @default(0)
+  crueltyHusband Int @default(0)
+  importationGirls Int @default(0)
+  totalCrimes Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([state, district, year])
+  @@index([state])
+  @@index([state, district])
+}
+
+model CrimeForecast {
+  id        String   @id @default(cuid())
+  state     String
+  district  String?
+  crimeType String
+  forecastYear Int
+  predictedValue Float
+  confidence String  // 'high', 'medium', 'low'
+  modelR2   Float    // R² score
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([state, district, crimeType, forecastYear])
+  @@index([state, crimeType])
+}

@@ -59,11 +59,13 @@ export default function DashboardPage() {
             </div>
           </Link>
 
-          <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-md transition-shadow cursor-pointer">
-            <BarChart className="w-10 h-10 text-emerald-500 mb-4" />
-            <h2 className="text-lg font-bold text-slate-900 mb-1">Analytics</h2>
-            <p className="text-slate-500 text-sm">View crime trends and safety statistics</p>
-          </div>
+          <Link href="/analytics" className="block">
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-md transition-shadow cursor-pointer">
+              <BarChart className="w-10 h-10 text-emerald-500 mb-4" />
+              <h2 className="text-lg font-bold text-slate-900 mb-1">Analytics</h2>
+              <p className="text-slate-500 text-sm">View crime trends and safety statistics</p>
+            </div>
+          </Link>
         </div>
 
         {/* User Info Card */}
