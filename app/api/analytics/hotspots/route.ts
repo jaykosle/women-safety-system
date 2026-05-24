@@ -22,7 +22,11 @@ export async function GET(req: NextRequest) {
     }
  
     const data = await mlRes.json()
-    return NextResponse.json(data)
+
+    // The frontend expects { hotspots: [...] } but ML returns a plain array
+    const hotspots = Array.isArray(data) ? data : (data.hotspots ?? [])
+    return NextResponse.json({ hotspots })
+
   } catch (err: any) {
     console.error('Hotspots error:', err)
     return NextResponse.json({ error: err.message }, { status: 500 })
