@@ -1,6 +1,7 @@
 // app/map/page.tsx
-import SafeRouteMap from '@/components/SafeRouteMap'
+// Backwards-compat redirect: the map now lives inside the dashboard shell.
+import { redirect } from 'next/navigation'
 
-export default function MapPage() {
-  return <SafeRouteMap />
+export default function MapRedirect() {
+  redirect('/dashboard/map')
 }

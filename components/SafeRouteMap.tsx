@@ -36,9 +36,17 @@ const CITIES = [
   { name: 'Visakhapatnam', lat: 17.6868, lng: 83.2185, zoom: 12 },
 ]
 
+type MapTheme = 'dark' | 'light'
+
+const TILE_URLS: Record<MapTheme, string> = {
+  dark:  'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+  light: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+}
+
 export default function SafeRouteMap() {
   const mapRef        = useRef<HTMLDivElement>(null)
   const mapInstance   = useRef<any>(null)
+  const tileLayerRef  = useRef<any>(null)
   const markersRef    = useRef<{ start: any; end: any }>({ start: null, end: null })
   const routeLayers   = useRef<{ layer: any; type: string }[]>([])
   const heatLayer     = useRef<any>(null)
@@ -48,9 +56,18 @@ export default function SafeRouteMap() {
   const [step,       setStep]       = useState<AppStep>('idle')
   const [safeRoute,  setSafeRoute]  = useState<RouteData | null>(null)
   const [shortRoute, setShortRoute] = useState<RouteData | null>(null)
+  const [routeMeta,  setRouteMeta]  = useState<{
+    differs: boolean
+    safetyImprovementPct: number
+    distancePenaltyPct: number
+    lowDataCoverage: boolean
+    candidatesEvaluated: number
+    dangerousRouteUnavoidable: boolean
+  } | null>(null)
   const [alpha,      setAlpha]      = useState(0.6)
   const [viewMode,   setViewMode]   = useState<ViewMode>('both')
   const [heatmapOn,  setHeatmapOn]  = useState(true)
+  const [theme,      setTheme]      = useState<MapTheme>('dark')
   const [error,      setError]      = useState<string | null>(null)
 
   // City search state
@@ -76,9 +93,13 @@ export default function SafeRouteMap() {
         center: [22.5, 82.5], zoom: 5, zoomControl: false
       })
 
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      const savedTheme = (typeof window !== 'undefined' && localStorage.getItem('map:theme')) as MapTheme | null
+      const initialTheme: MapTheme = savedTheme === 'light' || savedTheme === 'dark' ? savedTheme : 'dark'
+      if (initialTheme !== 'dark') setTheme(initialTheme)
+
+      tileLayerRef.current = L.tileLayer(TILE_URLS[initialTheme], {
         attribution: '&copy; OpenStreetMap &copy; CARTO',
-        subdomains: 'abcd', maxZoom: 19
+        subdomains: 'abcd', maxZoom: 19,
       }).addTo(map)
 
       L.control.zoom({ position: 'bottomright' }).addTo(map)
@@ -150,6 +171,25 @@ export default function SafeRouteMap() {
     heatmapOn ? heatLayer.current.addTo(map) : map.removeLayer(heatLayer.current)
   }, [heatmapOn])
 
+  // ── Tile theme swap ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapInstance.current
+    if (!map) return
+    let cancelled = false
+    ;(async () => {
+      const L = (await import('leaflet')).default
+      if (cancelled || !mapInstance.current) return
+      if (tileLayerRef.current) map.removeLayer(tileLayerRef.current)
+      tileLayerRef.current = L.tileLayer(TILE_URLS[theme], {
+        attribution: '&copy; OpenStreetMap &copy; CARTO',
+        subdomains: 'abcd', maxZoom: 19,
+      }).addTo(map)
+      tileLayerRef.current.bringToBack?.()
+      if (typeof window !== 'undefined') localStorage.setItem('map:theme', theme)
+    })()
+    return () => { cancelled = true }
+  }, [theme])
+
   // ── Route visibility toggle ──────────────────────────────────────────────────
   useEffect(() => {
     const map = mapInstance.current
@@ -201,7 +241,7 @@ export default function SafeRouteMap() {
     markersRef.current.end?.remove()
     routeLayers.current.forEach(({ layer }) => mapInstance.current?.removeLayer(layer))
     routeLayers.current = []
-    setSafeRoute(null); setShortRoute(null)
+    setSafeRoute(null); setShortRoute(null); setRouteMeta(null)
     setMarkers({ start: null, end: null })
     setPickMode(null); setStep('idle'); setError(null)
   }
@@ -232,6 +272,7 @@ export default function SafeRouteMap() {
       const data = await res.json()
       setSafeRoute(data.safeRoute)
       setShortRoute(data.shortRoute)
+      setRouteMeta(data.meta ?? null)
       setStep('result')
 
       const L = (await import('leaflet')).default
@@ -289,7 +330,7 @@ export default function SafeRouteMap() {
   }
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100vh', background: '#0a0c10',
+    <div style={{ position: 'relative', width: '100%', height: '100%', background: '#0a0c10',
       fontFamily: "'Inter', 'DM Sans', sans-serif", overflow: 'hidden' }}>
 
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
@@ -299,7 +340,7 @@ export default function SafeRouteMap() {
 
       {/* ── Top bar ── */}
       <div style={{
-        position: 'absolute', top: 0, left: 0, right: 0, zIndex: 1000,
+        position: 'absolute', top: 0, left: 0, right: 0, zIndex: 1100,
         background: 'rgba(10,12,16,0.88)', backdropFilter: 'blur(14px)',
         borderBottom: '1px solid rgba(255,255,255,0.07)',
         padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 16
@@ -344,7 +385,7 @@ export default function SafeRouteMap() {
           {/* Dropdown */}
           {cityResults.length > 0 && searchFocused && (
             <div style={{
-              position: 'absolute', top: '110%', left: 0, right: 0, zIndex: 2000,
+              position: 'absolute', top: '110%', left: 0, right: 0, zIndex: 1200,
               background: 'rgba(13,15,20,0.98)', border: '1px solid rgba(255,255,255,0.1)',
               borderRadius: 10, overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.5)'
             }}>
@@ -378,6 +419,32 @@ export default function SafeRouteMap() {
           cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0
         }}>
           {heatmapOn ? '◉' : '○'} Heatmap
+        </button>
+
+        {/* Theme toggle */}
+        <button
+          onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
+          title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} map`}
+          style={{
+            background: 'rgba(255,255,255,0.05)',
+            border: '1px solid rgba(255,255,255,0.1)',
+            color: 'rgba(255,255,255,0.7)',
+            padding: '6px 10px', borderRadius: 8, fontSize: 14,
+            cursor: 'pointer', flexShrink: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: 32, height: 32,
+          }}
+        >
+          {theme === 'dark' ? (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="4" />
+              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+            </svg>
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+            </svg>
+          )}
         </button>
       </div>
 
@@ -562,22 +629,65 @@ export default function SafeRouteMap() {
               </div>
             ))}
 
-            {/* Savings badge */}
+            {/* Smart status banner */}
             {(() => {
-              const saved = parseInt(shortRoute.avgRiskScore) - parseInt(safeRoute.avgRiskScore)
-              const extra = (parseFloat(safeRoute.distanceKm) - parseFloat(shortRoute.distanceKm)).toFixed(2)
-              if (saved <= 0) return (
-                <div style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(96,165,250,0.1)',
-                  border: '1px solid rgba(96,165,250,0.2)', fontSize: 11, color: '#93c5fd', textAlign: 'center' }}>
-                  Both routes have similar safety
+              if (routeMeta?.lowDataCoverage) return (
+                <div style={{
+                  padding: '10px 12px', borderRadius: 8,
+                  background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.25)',
+                  fontSize: 11, color: '#fbbf24', lineHeight: 1.5,
+                }}>
+                  <strong style={{ display: 'block', marginBottom: 2 }}>⚠ Low risk-data coverage</strong>
+                  We don't have crime data for this area yet, so we can't suggest a safer alternative.
                 </div>
               )
+
+              // Hardest case: no safer alternative AND the route passes through dangerous zones.
+              if (routeMeta?.dangerousRouteUnavoidable) {
+                const criticalKm = parseFloat((safeRoute as any).criticalDistanceKm ?? '0')
+                const peak = parseInt((safeRoute as any).peakRiskScore ?? '0')
+                return (
+                  <div style={{
+                    padding: '10px 12px', borderRadius: 8,
+                    background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)',
+                    fontSize: 11, color: '#fca5a5', lineHeight: 1.5,
+                  }}>
+                    <strong style={{ display: 'block', marginBottom: 2, color: '#f87171' }}>
+                      ⚠ Route passes through dangerous zones
+                    </strong>
+                    {criticalKm > 0 && <>{criticalKm.toFixed(1)} km in critical-risk areas (peak {peak}/100). </>}
+                    No safer alternative found across {routeMeta.candidatesEvaluated} detours — consider travelling in daylight or with company.
+                  </div>
+                )
+              }
+
+              if (!routeMeta?.differs) return (
+                <div style={{
+                  padding: '10px 12px', borderRadius: 8,
+                  background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.2)',
+                  fontSize: 11, color: '#93c5fd', lineHeight: 1.5,
+                }}>
+                  <strong style={{ display: 'block', marginBottom: 2 }}>✓ Route is already optimal</strong>
+                  We evaluated {routeMeta?.candidatesEvaluated ?? 0} alternatives — none were meaningfully safer than the direct route.
+                </div>
+              )
+
               return (
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  padding: '8px 12px', borderRadius: 8, background: 'rgba(74,222,128,0.1)',
-                  border: '1px solid rgba(74,222,128,0.2)' }}>
-                  <span style={{ fontSize: 11, color: '#4ade80' }}>↓ Risk reduced <strong>{saved} pts</strong></span>
-                  <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)' }}>+{extra} km</span>
+                <div style={{
+                  padding: '10px 12px', borderRadius: 8,
+                  background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.2)',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <span style={{ fontSize: 11, color: '#4ade80', fontWeight: 600 }}>
+                      ↓ {routeMeta.safetyImprovementPct}% safer
+                    </span>
+                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)' }}>
+                      +{routeMeta.distancePenaltyPct}% distance
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)' }}>
+                    Best of {routeMeta.candidatesEvaluated} detour candidates
+                  </div>
                 </div>
               )
             })()}

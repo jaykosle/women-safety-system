@@ -14,8 +14,8 @@ export default function LandingPage() {
       {/* Navigation Bar */}
       <nav className="flex items-center justify-between px-8 py-4 bg-white shadow-sm sticky top-0 z-50">
         <div className="flex items-center space-x-2">
-          <Shield className="w-8 h-8 text-indigo-600" />
-          <span className="text-xl font-bold text-slate-800">SafePath AI</span>
+          <Shield className="w-8 h-8 text-rose-600" />
+          <span className="text-xl font-bold text-slate-800">SafePath<span className="text-rose-500"> AI</span></span>
         </div>
         <div>
 <div className="flex items-center space-x-3">
