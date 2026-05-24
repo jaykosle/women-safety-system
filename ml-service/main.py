@@ -6,7 +6,12 @@ from typing import Optional
 import psycopg2
 import os
 import csv
+import json
 import math
+from pathlib import Path
+import numpy as np
+import pandas as pd
+import xgboost as xgb
 from dotenv import load_dotenv
 
 load_dotenv("../.env")
@@ -60,7 +65,60 @@ def load_csv():
 CSV_DATA = load_csv()
 print(f"Loaded {len(CSV_DATA)} CSV rows")
 
-# ── Existing risk prediction endpoint ────────────────────────────────────────
+# ── XGBoost risk prediction model ────────────────────────────────────────────
+# Trained by ml-service/train_risk_model.py. See TRAINING.md for retraining.
+
+MODEL_DIR = Path(__file__).resolve().parent
+
+class _ModelBundle:
+    """Loads trained XGBoost regressor + classifier + district lookups once."""
+    def __init__(self) -> None:
+        self.ready = False
+        meta_path = MODEL_DIR / "risk_model_meta.json"
+        if not meta_path.exists():
+            print("[predict-risk] No trained model found; falling back to heuristic.")
+            return
+        try:
+            with open(meta_path) as f:
+                self.meta = json.load(f)
+            self.feature_cols = self.meta["feature_cols"]
+            self.int_to_level = {int(k): v for k, v in self.meta["int_to_level"].items()}
+
+            self.reg = xgb.XGBRegressor()
+            self.reg.load_model(str(MODEL_DIR / "risk_model.json"))
+
+            self.clf = xgb.XGBClassifier()
+            self.clf.load_model(str(MODEL_DIR / "risk_classifier.json"))
+
+            self.centroids = pd.read_csv(MODEL_DIR / "district_centroids.csv")
+            self.ncrb = pd.read_csv(MODEL_DIR / "district_ncrb.csv").set_index(
+                ["state_u", "district_u"]
+            )
+            self._cent_lat = self.centroids["lat"].to_numpy()
+            self._cent_lng = self.centroids["lng"].to_numpy()
+            self.ready = True
+            print(f"[predict-risk] Loaded XGBoost model "
+                  f"(MAE={self.meta['metrics']['regressor_mae']}, "
+                  f"R2={self.meta['metrics']['regressor_r2']})")
+        except Exception as e:
+            print(f"[predict-risk] Model load failed: {e}; falling back to heuristic.")
+
+    def nearest_district(self, lat: float, lng: float):
+        d2 = (self._cent_lat - lat) ** 2 + (self._cent_lng - lng) ** 2
+        idx = int(np.argmin(d2))
+        return self.centroids.iloc[idx]["state_u"], self.centroids.iloc[idx]["district_u"]
+
+    def ncrb_features(self, state_u: str, district_u: str) -> dict:
+        try:
+            row = self.ncrb.loc[(state_u, district_u)]
+            return row.to_dict()
+        except KeyError:
+            # Unknown district → zero out NCRB features
+            return {c: 0.0 for c in self.ncrb.columns}
+
+_MODEL = _ModelBundle()
+
+
 class PredictRequest(BaseModel):
     lat: float
     lng: float
@@ -68,6 +126,7 @@ class PredictRequest(BaseModel):
 SEVERITY_WEIGHTS = {"LOW": 1, "MEDIUM": 2, "HIGH": 4, "CRITICAL": 6}
 NIGHT_MULTIPLIER = 1.4
 RADIUS_DEG = 0.003
+RADIUS_KM_AREA = math.pi * 0.3 ** 2  # ~0.28 sq km (300m radius)
 
 def get_features(lat, lng):
     conn = psycopg2.connect(DB_URL)
@@ -83,36 +142,138 @@ def get_features(lat, lng):
     conn.close()
     return rows
 
-@app.post("/predict-risk")
-def predict_risk(req: PredictRequest):
-    rows = get_features(req.lat, req.lng)
-    if not rows:
-        return {"risk_score": 10.0, "risk_level": "SAFE", "crime_density": 0.0, "night_crime_rate": 0.0}
 
+def _spatial_features(rows):
+    """Compute (crime_density, crime_count, night_crime_rate) from nearby records."""
+    if not rows:
+        return 0.0, 0, 0.0
+    total_cases = sum(r[2] for r in rows)
+    night_cases = sum(r[2] for r in rows if r[1] in ("NIGHT", "EVENING"))
+    crime_count = len(rows)
+    crime_density = total_cases / RADIUS_KM_AREA
+    night_rate = (night_cases / total_cases) if total_cases else 0.0
+    return crime_density, crime_count, night_rate
+
+
+def _heuristic_score(rows, crime_density, night_rate):
+    """Original hand-tuned scorer — used as a fallback when the model can't load."""
     total_weight = 0
-    night_count = 0
     for severity, time_of_day, case_count in rows:
         w = SEVERITY_WEIGHTS.get(severity, 1) * case_count
         if time_of_day in ("NIGHT", "EVENING"):
             w *= NIGHT_MULTIPLIER
-            night_count += case_count
         total_weight += w
+    return min(100, total_weight * 2)
 
-    total_cases = sum(r[2] for r in rows)
-    night_crime_rate = night_count / total_cases if total_cases else 0
-    crime_density = total_cases / (3.14 * 0.3 ** 2)
-    risk_score = min(100, total_weight * 2)
 
-    if risk_score < 30:   level = "SAFE"
+@app.post("/predict-risk")
+def predict_risk(req: PredictRequest):
+    rows = get_features(req.lat, req.lng)
+    crime_density, crime_count, night_rate = _spatial_features(rows)
+
+    # No nearby data → safe default (matches old behaviour)
+    if not rows:
+        return {
+            "risk_score": 10.0, "risk_level": "SAFE",
+            "crime_density": 0.0, "night_crime_rate": 0.0,
+            "source": "no_data",
+        }
+
+    # XGBoost path (preferred)
+    if _MODEL.ready:
+        state_u, district_u = _MODEL.nearest_district(req.lat, req.lng)
+        ncrb_feats = _MODEL.ncrb_features(state_u, district_u)
+        row = {
+            "latitude":       req.lat,
+            "longitude":      req.lng,
+            "year_filled":    2014,
+            "crimeDensity":   crime_density,
+            "crimeCount":     crime_count,
+            "nightCrimeRate": night_rate,
+            **ncrb_feats,
+        }
+        X = pd.DataFrame([[row[c] for c in _MODEL.feature_cols]],
+                         columns=_MODEL.feature_cols).astype(np.float32)
+        risk_score = float(np.clip(_MODEL.reg.predict(X)[0], 0, 100))
+        cls_int = int(_MODEL.clf.predict(X)[0])
+        risk_level = _MODEL.int_to_level[cls_int]
+        return {
+            "risk_score": round(risk_score, 2),
+            "risk_level": risk_level,
+            "crime_density": round(crime_density, 4),
+            "night_crime_rate": round(night_rate, 4),
+            "district": district_u.title(),
+            "state": state_u.title(),
+            "source": "xgboost",
+        }
+
+    # Fallback heuristic (only if model files missing)
+    risk_score = _heuristic_score(rows, crime_density, night_rate)
+    if   risk_score < 30: level = "SAFE"
     elif risk_score < 60: level = "MODERATE"
     elif risk_score < 80: level = "HIGH"
     else:                 level = "CRITICAL"
-
     return {
         "risk_score": round(risk_score, 2),
         "risk_level": level,
         "crime_density": round(crime_density, 4),
-        "night_crime_rate": round(night_crime_rate, 4)
+        "night_crime_rate": round(night_rate, 4),
+        "source": "heuristic",
+    }
+
+
+@app.post("/predict-risk-detailed")
+def predict_risk_detailed(req: PredictRequest):
+    """Same as /predict-risk but also returns class probabilities and top feature
+    contributions for the prediction. Useful for the analytics dashboard."""
+    if not _MODEL.ready:
+        return {"error": "Model not loaded; run train_risk_model.py first."}
+
+    rows = get_features(req.lat, req.lng)
+    if not rows:
+        return {"risk_score": 10.0, "risk_level": "SAFE", "source": "no_data"}
+
+    crime_density, crime_count, night_rate = _spatial_features(rows)
+    state_u, district_u = _MODEL.nearest_district(req.lat, req.lng)
+    ncrb_feats = _MODEL.ncrb_features(state_u, district_u)
+    row = {
+        "latitude":       req.lat,
+        "longitude":      req.lng,
+        "year_filled":    2014,
+        "crimeDensity":   crime_density,
+        "crimeCount":     crime_count,
+        "nightCrimeRate": night_rate,
+        **ncrb_feats,
+    }
+    X = pd.DataFrame([[row[c] for c in _MODEL.feature_cols]],
+                     columns=_MODEL.feature_cols).astype(np.float32)
+    risk_score = float(np.clip(_MODEL.reg.predict(X)[0], 0, 100))
+    proba = _MODEL.clf.predict_proba(X)[0]
+    cls_int = int(np.argmax(proba))
+
+    # Per-prediction feature contributions via XGBoost's predict with output_margin
+    booster = _MODEL.reg.get_booster()
+    dmatrix = xgb.DMatrix(X, feature_names=_MODEL.feature_cols)
+    shap = booster.predict(dmatrix, pred_contribs=True)[0]
+    # last element is the bias; drop it
+    contributions = sorted(
+        [(name, float(v)) for name, v in zip(_MODEL.feature_cols, shap[:-1])],
+        key=lambda kv: abs(kv[1]), reverse=True,
+    )[:5]
+
+    return {
+        "risk_score": round(risk_score, 2),
+        "risk_level": _MODEL.int_to_level[cls_int],
+        "class_probabilities": {
+            _MODEL.int_to_level[i]: round(float(p), 3) for i, p in enumerate(proba)
+        },
+        "top_factors": [
+            {"feature": name, "contribution": round(v, 3)}
+            for name, v in contributions
+        ],
+        "district": district_u.title(),
+        "state": state_u.title(),
+        "source": "xgboost",
     }
 
 # ── Analytics endpoints ───────────────────────────────────────────────────────

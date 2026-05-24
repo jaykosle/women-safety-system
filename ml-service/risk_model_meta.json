@@ -1,0 +1,51 @@
+{
+  "feature_cols": [
+    "latitude",
+    "longitude",
+    "year_filled",
+    "crimeDensity",
+    "crimeCount",
+    "nightCrimeRate",
+    "log_ncrb_rape",
+    "log_ncrb_kidnap",
+    "log_ncrb_dowry",
+    "log_ncrb_assault",
+    "log_ncrb_insult",
+    "log_ncrb_cruelty",
+    "log_ncrb_total",
+    "frac_rape",
+    "frac_kidnap",
+    "frac_dowry",
+    "frac_assault",
+    "frac_cruelty"
+  ],
+  "level_to_int": {
+    "LOW": 0,
+    "SAFE": 0,
+    "MEDIUM": 1,
+    "MODERATE": 1,
+    "HIGH": 2,
+    "CRITICAL": 3
+  },
+  "int_to_level": {
+    "0": "LOW",
+    "1": "MEDIUM",
+    "2": "HIGH",
+    "3": "CRITICAL"
+  },
+  "ncrb_feature_cols": [
+    "ncrb_rape",
+    "ncrb_kidnap",
+    "ncrb_dowry",
+    "ncrb_assault",
+    "ncrb_insult",
+    "ncrb_cruelty",
+    "ncrb_total"
+  ],
+  "metrics": {
+    "regressor_mae": 6.422,
+    "regressor_r2": 0.936,
+    "classifier_accuracy": 0.856
+  },
+  "trained_on_rows": 219318
+}
